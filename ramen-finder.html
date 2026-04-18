@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>ラーメン屋検索</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; background: #f5f5f5; }
+#app { max-width: 480px; margin: 0 auto; background: white; min-height: 100vh; display: flex; flex-direction: column; }
+.header { background: #e8001d; color: white; padding: 14px 16px; display: flex; align-items: center; gap: 10px; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.controls { padding: 12px; background: white; border-bottom: 1px solid #eee; }
+.gps-btn { width: 100%; padding: 11px; background: #e8001d; color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; }
+.gps-btn:active { opacity: 0.85; }
+.search-row { display: flex; gap: 8px; }
+.search-row input { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; font-size: 15px; outline: none; }
+.search-row input:focus { border-color: #e8001d; }
+.search-row button { padding: 10px 16px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 10px; font-size: 14px; cursor: pointer; white-space: nowrap; color: #333; }
+.radius-tabs { display: flex; gap: 8px; padding: 10px 12px; background: white; border-bottom: 1px solid #eee; }
+.radius-tab { flex: 1; padding: 8px 4px; text-align: center; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: 1px solid #ddd; background: #f9f9f9; color: #666; }
+.radius-tab.active { background: #e8001d; color: white; border-color: #e8001d; }
+#map { width: 100%; height: 300px; }
+.status-bar { padding: 8px 14px; background: #f9f9f9; border-top: 1px solid #eee; border-bottom: 1px solid #eee; font-size: 13px; color: #666; }
+.results { flex: 1; }
+.result-item { padding: 13px 14px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: flex-start; gap: 12px; cursor: pointer; background: white; }
+.result-item:active { background: #fafafa; }
+.result-num { width: 26px; height: 26px; border-radius: 50%; background: #e8001d; color: white; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.result-info { flex: 1; }
+.result-name { font-size: 15px; font-weight: 600; color: #222; }
+.result-addr { font-size: 12px; color: #888; margin-top: 3px; }
+.result-rating { font-size: 12px; color: #f5a623; margin-top: 2px; }
+.result-dist { font-size: 13px; color: #e8001d; font-weight: 600; white-space: nowrap; }
+.no-results { padding: 40px 20px; text-align: center; color: #999; font-size: 15px; line-height: 1.8; }
+.loading { padding: 40px 20px; text-align: center; color: #999; font-size: 15px; }
+.gps-note { font-size: 12px; color: #999; text-align: center; margin-top: 6px; }
+
+/* InfoWindow内の写真スタイル */
+.iw-photo { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; display: block; }
+.iw-photo-placeholder { width: 100%; height: 80px; background: #f5f5f5; border-radius: 8px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; font-size: 32px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="header">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+    <h1>ラーメン屋検索</h1>
+  </div>
+  <div class="controls">
+    <button class="gps-btn" id="gps-btn" onclick="useGPS()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+      現在地を使う
+    </button>
+    <div id="gps-note" class="gps-note" style="display:none">⚠️ MacのSafariではfile://からGPSが使えません。iPhoneでは動作します。</div>
+    <div class="search-row">
+      <input type="text" id="search-input" placeholder="例：福岡市博多区、天神駅" onkeydown="if(event.key==='Enter')searchByText()" />
+      <button onclick="searchByText()">検索</button>
+    </div>
+  </div>
+  <div class="radius-tabs">
+    <div class="radius-tab active" onclick="setRadius(1000,this)">1km</div>
+    <div class="radius-tab" onclick="setRadius(3000,this)">3km</div>
+    <div class="radius-tab" onclick="setRadius(5000,this)">5km</div>
+    <div class="radius-tab" onclick="setRadius(10000,this)">10km</div>
+  </div>
+  <div id="map"></div>
+  <div class="status-bar" id="status-bar">現在地を取得するか、場所を入力してください</div>
+  <div class="results" id="results-list">
+    <div class="no-results">📍 場所を指定すると<br>近くのラーメン屋が表示されます</div>
+  </div>
+</div>
+
+<script>
+const API_KEY = 'AIzaSyDPfpFIfDgS31fRS__Z7HOScLzfVWgAi_8';
+let map, currentLocation, currentRadius = 1000;
+let markers = [], infoWindow, userMarker, radiusCircle;
+let placesLib;
+
+async function initMap() {
+  const { Map } = await google.maps.importLibrary('maps');
+  const { AdvancedMarkerElement } = await google.maps.importLibrary('marker');
+  placesLib = await google.maps.importLibrary('places');
+  window._AdvancedMarker = AdvancedMarkerElement;
+  map = new Map(document.getElementById('map'), {
+    center: { lat: 33.5904, lng: 130.4017 }, zoom: 14, mapId: 'DEMO_MAP_ID',
+    mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+  });
+  infoWindow = new google.maps.InfoWindow({ maxWidth: 280 });
+}
+
+function setRadius(r, el) {
+  currentRadius = r;
+  document.querySelectorAll('.radius-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  if (currentLocation) { updateRadiusCircle(currentLocation); searchRamen(currentLocation); }
+}
+
+function updateRadiusCircle(center) {
+  if (radiusCircle) radiusCircle.setMap(null);
+  radiusCircle = new google.maps.Circle({
+    map, center, radius: currentRadius,
+    strokeColor: '#e8001d', strokeOpacity: 0.6, strokeWeight: 1.5,
+    fillColor: '#e8001d', fillOpacity: 0.06,
+  });
+  map.fitBounds(radiusCircle.getBounds());
+}
+
+function useGPS() {
+  const btn = document.getElementById('gps-btn');
+  btn.textContent = '取得中...';
+  if (!navigator.geolocation) { showGpsNote(); resetBtn(); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    currentLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    placeUserMarker(currentLocation);
+    document.getElementById('status-bar').textContent = '現在地を取得しました';
+    document.getElementById('gps-note').style.display = 'none';
+    resetBtn(); updateRadiusCircle(currentLocation); searchRamen(currentLocation);
+  }, () => { showGpsNote(); resetBtn(); }, { timeout: 8000, enableHighAccuracy: true });
+}
+
+function showGpsNote() { document.getElementById('gps-note').style.display = 'block'; }
+
+function resetBtn() {
+  document.getElementById('gps-btn').innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg> 現在地を使う`;
+}
+
+function placeUserMarker(pos) {
+  if (userMarker) userMarker.map = null;
+  const dot = document.createElement('div');
+  dot.style.cssText = 'width:16px;height:16px;background:#4285f4;border:3px solid white;border-radius:50%;';
+  userMarker = new window._AdvancedMarker({ position: pos, map, content: dot, title: '現在地' });
+}
+
+function searchByText() {
+  const val = document.getElementById('search-input').value.trim();
+  if (!val) return;
+  document.getElementById('status-bar').textContent = '検索中...';
+  const geocoder = new google.maps.Geocoder();
+  geocoder.geocode({ address: val, region: 'JP', language: 'ja' }, (results, status) => {
+    if (status === 'OK' && results[0]) {
+      currentLocation = { lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() };
+      placeUserMarker(currentLocation);
+      document.getElementById('status-bar').textContent = '検索地点：' + results[0].formatted_address;
+      updateRadiusCircle(currentLocation); searchRamen(currentLocation);
+    } else {
+      geocoder.geocode({ address: val + '駅', region: 'JP', language: 'ja' }, (r2, s2) => {
+        if (s2 === 'OK' && r2[0]) {
+          currentLocation = { lat: r2[0].geometry.location.lat(), lng: r2[0].geometry.location.lng() };
+          placeUserMarker(currentLocation);
+          document.getElementById('status-bar').textContent = '検索地点：' + r2[0].formatted_address;
+          updateRadiusCircle(currentLocation); searchRamen(currentLocation);
+        } else {
+          alert('場所が見つかりませんでした。\n例：「福岡市博多区」「天神駅」');
+          document.getElementById('status-bar').textContent = '場所が見つかりませんでした';
+        }
+      });
+    }
+  });
+}
+
+function calcDist(from, to) {
+  const R = 6371000;
+  const dLat = (to.lat - from.lat) * Math.PI / 180;
+  const dLng = (to.lng - from.lng) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(from.lat*Math.PI/180)*Math.cos(to.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function formatDist(d) { return d < 1000 ? Math.round(d)+'m' : (d/1000).toFixed(1)+'km'; }
+
+async function searchRamen(location) {
+  markers.forEach(m => m.map = null); markers = [];
+  infoWindow.close();
+  document.getElementById('results-list').innerHTML = '<div class="loading">🍜 検索中...</div>';
+  const { Place } = placesLib;
+  try {
+    const { places } = await Place.searchByText({
+      textQuery: 'ラーメン',
+      fields: ['displayName','location','formattedAddress','rating','userRatingCount','id'],
+      locationBias: { center: { lat: location.lat, lng: location.lng }, radius: currentRadius },
+      language: 'ja', maxResultCount: 20,
+    });
+    const filtered = (places || []).filter(p => {
+      return calcDist(location, { lat: p.location.lat(), lng: p.location.lng() }) <= currentRadius;
+    }).sort((a, b) => {
+      return calcDist(location, { lat: a.location.lat(), lng: a.location.lng() })
+           - calcDist(location, { lat: b.location.lat(), lng: b.location.lng() });
+    });
+    if (filtered.length > 0) displayResults(filtered, location);
+    else {
+      document.getElementById('results-list').innerHTML = '<div class="no-results">この範囲にラーメン屋が見つかりませんでした<br>半径を広げてみてください</div>';
+      document.getElementById('status-bar').textContent = '0件';
+    }
+  } catch(e) {
+    document.getElementById('results-list').innerHTML = `<div class="no-results">エラー: ${e.message}</div>`;
+  }
+}
+
+function displayResults(places, origin) {
+  const label = currentRadius >= 1000 ? currentRadius/1000+'km' : currentRadius+'m';
+  document.getElementById('status-bar').textContent = `半径${label}以内に${places.length}件見つかりました`;
+  const list = document.getElementById('results-list');
+  list.innerHTML = '';
+  places.forEach((place, i) => {
+    const pos = place.location;
+    const pinEl = document.createElement('div');
+    pinEl.style.cssText = 'width:28px;height:28px;background:#e8001d;color:white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid white;font-size:11px;font-weight:bold;';
+    const numEl = document.createElement('span');
+    numEl.style.transform = 'rotate(45deg)';
+    numEl.textContent = i + 1;
+    pinEl.appendChild(numEl);
+    const marker = new window._AdvancedMarker({ position: pos, map, content: pinEl, title: place.displayName });
+    markers.push(marker);
+    marker.addListener('click', () => { map.setCenter(pos); showInfoWindow(place, marker); });
+    const dist = formatDist(calcDist(origin, { lat: pos.lat(), lng: pos.lng() }));
+    const stars = place.rating ? `★${place.rating.toFixed(1)}${place.userRatingCount ? ` (${place.userRatingCount}件)` : ''}` : '';
+    const item = document.createElement('div');
+    item.className = 'result-item';
+    item.innerHTML = `
+      <div class="result-num">${i+1}</div>
+      <div class="result-info">
+        <div class="result-name">${place.displayName}</div>
+        <div class="result-addr">${place.formattedAddress||''}</div>
+        ${stars ? `<div class="result-rating">${stars}</div>` : ''}
+      </div>
+      <div class="result-dist">${dist}</div>`;
+    item.onclick = () => { map.setCenter(pos); map.setZoom(17); window.scrollTo(0,0); showInfoWindow(place, marker); };
+    list.appendChild(item);
+  });
+}
+
+async function showInfoWindow(place, marker) {
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query_place_id=${place.id}`;
+  // まずローディング表示
+  infoWindow.setContent(`
+    <div style="font-family:-apple-system,sans-serif;width:240px">
+      <div style="width:100%;height:80px;background:#f5f5f5;border-radius:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;font-size:28px">🍜</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:8px">${place.displayName}</div>
+      <div style="font-size:12px;color:#999">読み込み中...</div>
+    </div>`);
+  infoWindow.open(map, marker);
+
+  try {
+    const { Place } = placesLib;
+    const detailPlace = new Place({ id: place.id });
+    await detailPlace.fetchFields({
+      fields: ['displayName','formattedAddress','rating','userRatingCount',
+               'regularOpeningHours','nationalPhoneNumber','websiteURI',
+               'businessStatus','googleMapsURI','photos']
+    });
+
+    // 写真URL取得
+    let photoHtml = '<div style="width:100%;height:60px;background:#f5f5f5;border-radius:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;font-size:28px">🍜</div>';
+    if (detailPlace.photos && detailPlace.photos.length > 0) {
+      const photoUrl = detailPlace.photos[0].getURI({ maxWidth: 280, maxHeight: 160 });
+      photoHtml = `<img src="${photoUrl}" style="width:100%;height:140px;object-fit:cover;border-radius:8px;margin-bottom:10px;display:block" alt="${detailPlace.displayName}">`;
+    }
+
+    const isOpen = detailPlace.regularOpeningHours?.isOpen?.();
+    const openBadge = isOpen === true
+      ? '<span style="display:inline-block;padding:2px 7px;background:#e6f4ea;color:#1e7e34;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px">営業中</span>'
+      : isOpen === false
+      ? '<span style="display:inline-block;padding:2px 7px;background:#fce8e6;color:#c5221f;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px">営業時間外</span>'
+      : '';
+    const todayHours = detailPlace.regularOpeningHours?.weekdayDescriptions
+      ? detailPlace.regularOpeningHours.weekdayDescriptions[(new Date().getDay() + 6) % 7] : '';
+    const finalUrl = detailPlace.googleMapsURI || mapsUrl;
+    const starsDetail = detailPlace.rating
+      ? `★${detailPlace.rating.toFixed(1)}${detailPlace.userRatingCount ? ` (${detailPlace.userRatingCount}件)` : ''}` : '';
+
+    infoWindow.setContent(`
+      <div style="font-family:-apple-system,sans-serif;width:240px">
+        ${photoHtml}
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px">${detailPlace.displayName}${openBadge}</div>
+        ${starsDetail ? `<div style="font-size:13px;color:#f5a623;margin-bottom:6px">${starsDetail}</div>` : ''}
+        <div style="font-size:12px;color:#555;margin-bottom:4px">📍 ${detailPlace.formattedAddress||''}</div>
+        ${detailPlace.nationalPhoneNumber ? `<div style="font-size:12px;margin-bottom:4px">📞 <a href="tel:${detailPlace.nationalPhoneNumber}" style="color:#1a73e8">${detailPlace.nationalPhoneNumber}</a></div>` : ''}
+        ${todayHours ? `<div style="font-size:12px;color:#555;margin-bottom:6px">🕐 ${todayHours}</div>` : ''}
+        ${detailPlace.websiteURI ? `<div style="font-size:12px;margin-bottom:6px">🌐 <a href="${detailPlace.websiteURI}" target="_blank" style="color:#1a73e8">ウェブサイト</a></div>` : ''}
+        <a href="${finalUrl}" target="_blank" style="display:block;padding:8px;background:#e8001d;color:white;text-align:center;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;margin-top:8px">Googleマップで開く</a>
+      </div>`);
+  } catch(e) {}
+}
+
+window.initMap = initMap;
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDPfpFIfDgS31fRS__Z7HOScLzfVWgAi_8&callback=initMap&libraries=places,marker&language=ja&v=beta" async defer></script>
+</body>
+</html>
